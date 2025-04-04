@@ -1,0 +1,10 @@
+version: "3.8"
+
+services:
+  fintafsir-app:
+    build: .
+    ports:
+      - "64829:64829"
+    environment:
+      - SPRING_PROFILES_ACTIVE=default
+    container_name: fintafsir_container

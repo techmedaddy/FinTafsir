@@ -1,0 +1,23 @@
+# Ignore Maven build output
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Ignore IDE-specific files
+.idea/
+*.iml
+.vscode/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Git
+.git
+.gitignore
+
+# Docker files (if you only want to copy compiled JAR)
+Dockerfile
+docker-compose.yml
