@@ -10,7 +10,8 @@ FinTafsir is a Java-based Spring Boot application that reads uploaded PDF files 
 - GPT-based language processing via OpenAI API
 - Structured JSON extraction with raw-text fallback
 - Input validation (file type, size, extension)
-- API key configured via environment variable (fail-fast on missing key)
+- API key configured via environment variable
+- Dummy mode when API key is missing (for UI testing)
 - Minimal frontend in dusky dark theme
 - Dockerized with `Dockerfile` and `docker-compose.yml`
 
@@ -106,41 +107,76 @@ FinTafsir/
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Getting Started (Step‑by‑Step)
 
-### Prerequisites
+### ✅ Prerequisites
 
-- JDK 17+
-- Maven
-- OpenAI API Key
-- Docker (optional)
+Make sure you have **all** of these installed:
 
-### 🔧 Local Run
+1. **Java 17+**
+2. **Maven 3.8+**
+3. **Docker Desktop** (only if you want to run with Docker)
+4. **OpenAI API Key** (optional — only required for real LLM extraction)
 
-```bash
-# Set your OpenAI API key
-export OPENAI_API_KEY=sk-your-key-here
-
-# Build and run
-mvn clean install
-mvn spring-boot:run
-```
-
-The app will start at **http://localhost:64829**. Open `http://localhost:64829/index.html` for the upload UI.
-
-> **Note:** The application will fail to start if `OPENAI_API_KEY` is not set.
+You can still run the app **without** an OpenAI key in **dummy mode** to test the UI.
 
 ---
 
-### 🐳 Docker Setup
+## 🔑 OpenAI API Key Setup (Optional but Recommended)
+
+1. Go to the OpenAI dashboard and create an API key.
+2. In your terminal, export the key:
 
 ```bash
-# Set the key in your shell, then run
 export OPENAI_API_KEY=sk-your-key-here
-docker-compose up --build
 ```
 
-The `docker-compose.yml` passes `OPENAI_API_KEY` into the container automatically.
+That’s it. The app will read the key from the environment.
+
+If you **don’t** set a key, the app still runs but returns **dummy data**.
+
+---
+
+## ▶️ Run Locally (Without Docker)
+
+From the project root:
+
+```bash
+mvn clean package
+mvn spring-boot:run
+```
+
+Open in your browser:
+
+- **Frontend UI:** http://localhost:64829/index.html
+- **Backend API:** http://localhost:64829/api
+
+---
+
+## 🐳 Run with Docker
+
+From the project root:
+
+```bash
+docker compose up -d --build
+```
+
+If you want real extraction, make sure you export the key **before** running Docker:
+
+```bash
+export OPENAI_API_KEY=sk-your-key-here
+docker compose up -d --build
+```
+
+---
+
+## ✅ Dummy Mode (No Key)
+
+If `OPENAI_API_KEY` is **not** set:
+
+- The app still starts
+- The UI still works
+- Responses return **fake demo data** so you can test the flow
 
 ---
 
