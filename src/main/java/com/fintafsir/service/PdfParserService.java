@@ -35,10 +35,8 @@ public class PdfParserService {
     @PostConstruct
     public void validateApiKey() {
         if (openaiApiKey == null || openaiApiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "OPENAI_API_KEY is not set. "
-                    + "Export it as an environment variable before starting the application: "
-                    + "export OPENAI_API_KEY=sk-...");
+            log.warn("OPENAI_API_KEY is not set. Running in dummy mode (LLM calls disabled). ");
+            return;
         }
         log.info("OpenAI API key configured (ends with ...{})",
                 openaiApiKey.substring(Math.max(0, openaiApiKey.length() - 4)));
@@ -54,6 +52,17 @@ public class PdfParserService {
 
         if (pdfText == null || pdfText.isBlank()) {
             throw new IllegalArgumentException("PDF contains no extractable text.");
+        }
+
+        // If API key is missing, return a dummy response for UI/testing
+        if (openaiApiKey == null || openaiApiKey.isBlank()) {
+            PdfResponse dummy = new PdfResponse();
+            dummy.setName("Demo User");
+            dummy.setEmail("demo@example.com");
+            dummy.setOpeningBalance("$0.00");
+            dummy.setClosingBalance("$0.00");
+            dummy.setRawText("Dummy mode: OPENAI_API_KEY not set. Parsed text length=" + pdfText.length());
+            return dummy;
         }
 
         // 2. Prepare prompt — instruct the LLM to respond with strict JSON only
