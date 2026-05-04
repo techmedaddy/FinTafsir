@@ -8,6 +8,9 @@ FinTafsir is a Java-based Spring Boot application that reads uploaded PDF files 
 - RESTful API built using Spring Boot
 - PDF text extraction using Apache PDFBox
 - GPT-based language processing via OpenAI API
+- Structured JSON extraction with raw-text fallback
+- Input validation (file type, size, extension)
+- API key configured via environment variable (fail-fast on missing key)
 - Minimal frontend in dusky dark theme
 - Dockerized with `Dockerfile` and `docker-compose.yml`
 
@@ -51,14 +54,15 @@ FinTafsir/
 ## ⚙️ How It Works
 
 1. A user uploads a PDF through the frontend or API.
-2. The backend extracts text using **Apache PDFBox**.
-3. The text is sent to **OpenAI's GPT API** via OkHttp client.
-4. The LLM responds with extracted fields like:
+2. The backend validates the file (type, size, extension).
+3. The text is extracted using **Apache PDFBox**.
+4. The text is sent to **OpenAI's GPT API** via OkHttp client with a JSON-only prompt.
+5. The LLM responds with structured JSON containing:
    - Name  
    - Email  
    - Opening Balance  
    - Closing Balance  
-5. The backend returns a structured JSON response.
+6. The backend parses the JSON into `PdfResponse` fields. If parsing fails, the raw LLM output is returned as `rawText`.
 
 
 
@@ -69,26 +73,39 @@ FinTafsir/
 **Request:**
 
 - Content-Type: `multipart/form-data`
-- Parameter: `file` → PDF file
+- Parameter: `file` → PDF file (max 10 MB)
 
-**Response:**
+**Validation Rules:**
+
+| Check | HTTP Status |
+|---|---|
+| Empty / missing file | 400 Bad Request |
+| Non-PDF content type | 400 Bad Request |
+| Missing `.pdf` extension | 400 Bad Request |
+| File > 10 MB | 413 Payload Too Large |
+
+**Success Response:**
 
 ```json
 {
   "name": "John Doe",
   "email": "john@example.com",
   "openingBalance": "$5,000",
-  "closingBalance": "$7,250"
+  "closingBalance": "$7,250",
+  "rawText": "{ ... original LLM output ... }"
 }
+```
 
+**Error Response:**
 
+```json
+{
+  "error": "Only PDF files are accepted. Received content type: text/plain"
+}
 ```
 
 ---
 
-### 🧪 **6. Getting Started (Local + Docker)**
-
-```markdown
 ## 🛠️ Getting Started
 
 ### Prerequisites
@@ -97,41 +114,46 @@ FinTafsir/
 - Maven
 - OpenAI API Key
 - Docker (optional)
-```
+
 ### 🔧 Local Run
 
 ```bash
+# Set your OpenAI API key
+export OPENAI_API_KEY=sk-your-key-here
+
+# Build and run
 mvn clean install
 mvn spring-boot:run
 ```
 
+The app will start at **http://localhost:64829**. Open `http://localhost:64829/index.html` for the upload UI.
+
+> **Note:** The application will fail to start if `OPENAI_API_KEY` is not set.
+
 ---
 
-### 🐳 **7. Docker Instructions**
-
-```markdown
 ### 🐳 Docker Setup
 
 ```bash
+# Set the key in your shell, then run
+export OPENAI_API_KEY=sk-your-key-here
 docker-compose up --build
-
 ```
+
+The `docker-compose.yml` passes `OPENAI_API_KEY` into the container automatically.
+
 ---
 
-### 🖥️ **8. Frontend Usage**
-
-```markdown
 ## 💡 Frontend Preview
 
 - Static HTML, CSS, JS in `src/main/resources/static`
 - Accessible at: `http://localhost:64829/index.html`
 - Upload a PDF and get results displayed in `<pre>` tag
 
-```
 ## 🔐 Security Notes (For Production)
 
-- Validate MIME type (`application/pdf`)
-- Limit max file size in `application.properties`
+- Validate MIME type (`application/pdf`) ✅ (implemented)
+- Limit max file size in `application.properties` ✅ (implemented — 10 MB)
 - Add API authentication / rate-limiting
 - Sanitize extracted text before LLM usage
 
@@ -139,19 +161,17 @@ docker-compose up --build
 ## 🧠 LLM Prompt Sample
 
 ```text
-Extract the following details from this PDF text:
-- Full Name
-- Email
-- Opening Balance
-- Closing Balance
-Text:
+Extract the following fields from this bank statement / financial PDF text
+and respond with ONLY a valid JSON object, no extra text:
+{
+  "name": "<account holder name>",
+  "email": "<email address or null>",
+  "openingBalance": "<opening balance>",
+  "closingBalance": "<closing balance>"
+}
+
+If a field is not found, use null.
+
+PDF Text:
 [PDF Content Here...]
-
 ```
-
-
-
-
-
-
-

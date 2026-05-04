@@ -3,9 +3,13 @@ package com.fintafsir.service;
 import com.fintafsir.model.PdfResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.annotation.PostConstruct;
 import okhttp3.*;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -14,12 +18,31 @@ import java.io.InputStream;
 @Service
 public class PdfParserService {
 
+    private static final Logger log = LoggerFactory.getLogger(PdfParserService.class);
+
     private final OkHttpClient client = new OkHttpClient();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Replace with your actual OpenAI API key
-    private static final String OPENAI_API_KEY = "your-openai-api-key";
-    private static final String OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+    @Value("${openai.api.key}")
+    private String openaiApiKey;
+
+    @Value("${openai.api.url}")
+    private String openaiUrl;
+
+    @Value("${openai.model}")
+    private String openaiModel;
+
+    @PostConstruct
+    public void validateApiKey() {
+        if (openaiApiKey == null || openaiApiKey.isBlank()) {
+            throw new IllegalStateException(
+                    "OPENAI_API_KEY is not set. "
+                    + "Export it as an environment variable before starting the application: "
+                    + "export OPENAI_API_KEY=sk-...");
+        }
+        log.info("OpenAI API key configured (ends with ...{})",
+                openaiApiKey.substring(Math.max(0, openaiApiKey.length() - 4)));
+    }
 
     public PdfResponse extractDataFromPdf(MultipartFile file) throws Exception {
         // 1. Read PDF content
@@ -29,14 +52,31 @@ public class PdfParserService {
             pdfText = pdfStripper.getText(document);
         }
 
-        // 2. Prepare prompt
-        String prompt = "Extract name, email, opening balance, and closing balance from the following text:\n\n"
-                + pdfText;
+        if (pdfText == null || pdfText.isBlank()) {
+            throw new IllegalArgumentException("PDF contains no extractable text.");
+        }
+
+        // 2. Prepare prompt — instruct the LLM to respond with strict JSON only
+        String prompt = "Extract the following fields from this bank statement / financial PDF text "
+                + "and respond with ONLY a valid JSON object, no extra text:\n"
+                + "{\n"
+                + "  \"name\": \"<account holder name>\",\n"
+                + "  \"email\": \"<email address or null>\",\n"
+                + "  \"openingBalance\": \"<opening balance>\",\n"
+                + "  \"closingBalance\": \"<closing balance>\"\n"
+                + "}\n\n"
+                + "If a field is not found, use null.\n\n"
+                + "PDF Text:\n" + pdfText;
 
         // 3. Call OpenAI API
         String requestBody = objectMapper.writeValueAsString(new Object() {
-            public final String model = "gpt-3.5-turbo";
+            public final String model = openaiModel;
             public final Object[] messages = new Object[] {
+                    new Object() {
+                        public final String role = "system";
+                        public final String content = "You are a data-extraction assistant. "
+                                + "Always respond with valid JSON only, no markdown fences, no explanations.";
+                    },
                     new Object() {
                         public final String role = "user";
                         public final String content = prompt;
@@ -45,20 +85,62 @@ public class PdfParserService {
         });
 
         Request request = new Request.Builder()
-                .url(OPENAI_URL)
+                .url(openaiUrl)
                 .post(RequestBody.create(requestBody, MediaType.parse("application/json")))
-                .addHeader("Authorization", "Bearer " + OPENAI_API_KEY)
+                .addHeader("Authorization", "Bearer " + openaiApiKey)
                 .build();
 
-        Response response = client.newCall(request).execute();
-        String responseBody = response.body().string();
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                String errorBody = response.body() != null ? response.body().string() : "no body";
+                throw new RuntimeException("OpenAI API returned HTTP " + response.code() + ": " + errorBody);
+            }
 
-        // 4. Parse OpenAI response
-        JsonNode root = objectMapper.readTree(responseBody);
-        String content = root.at("/choices/0/message/content").asText();
+            String responseBody = response.body().string();
 
-        // 5. You can improve this by parsing structured JSON if you instruct LLM
-        // accordingly
-        return new PdfResponse(content.trim());
+            // 4. Parse OpenAI response
+            JsonNode root = objectMapper.readTree(responseBody);
+            String content = root.at("/choices/0/message/content").asText().trim();
+
+            // 5. Try to parse structured JSON from LLM output
+            return parseStructuredResponse(content);
+        }
+    }
+
+    /**
+     * Attempts to parse the LLM output as structured JSON into PdfResponse fields.
+     * Falls back to returning the raw text if JSON parsing fails.
+     */
+    private PdfResponse parseStructuredResponse(String content) {
+        try {
+            // Strip markdown code fences if the LLM adds them despite instructions
+            String cleaned = content;
+            if (cleaned.startsWith("```")) {
+                cleaned = cleaned.replaceAll("^```[a-zA-Z]*\\n?", "").replaceAll("\\n?```$", "");
+            }
+
+            JsonNode json = objectMapper.readTree(cleaned);
+
+            PdfResponse pdfResponse = new PdfResponse();
+            pdfResponse.setName(getTextOrNull(json, "name"));
+            pdfResponse.setEmail(getTextOrNull(json, "email"));
+            pdfResponse.setOpeningBalance(getTextOrNull(json, "openingBalance"));
+            pdfResponse.setClosingBalance(getTextOrNull(json, "closingBalance"));
+            pdfResponse.setRawText(content); // always include raw for transparency
+            return pdfResponse;
+
+        } catch (Exception e) {
+            log.warn("Failed to parse structured JSON from LLM response, falling back to rawText: {}",
+                    e.getMessage());
+            return new PdfResponse(content);
+        }
+    }
+
+    private String getTextOrNull(JsonNode json, String field) {
+        JsonNode node = json.get(field);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        return node.asText();
     }
 }

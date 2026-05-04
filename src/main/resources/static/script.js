@@ -14,8 +14,14 @@ document.getElementById("uploadForm").addEventListener("submit", async function 
             body: formData,
         });
 
-        const result = await response.text();
-        resultBox.textContent = result;
+        const result = await response.json();
+
+        if (!response.ok) {
+            resultBox.textContent = "❌ " + (result.error || JSON.stringify(result));
+            return;
+        }
+
+        resultBox.textContent = JSON.stringify(result, null, 2);
     } catch (err) {
         resultBox.textContent = "❌ Error: " + err.message;
     }
